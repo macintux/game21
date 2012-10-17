@@ -66,7 +66,7 @@ start(HouseStrategy, PlayerStrategy) ->
     PlayerUp = generate_card(),
     HouseState = #userstate{ tally = HouseUp, upcard = HouseUp, strategy = HouseStrategy },
     PlayerState = #userstate{ tally = PlayerUp, upcard = PlayerUp, strategy = PlayerStrategy },
-    do_house_if(HouseState, PlayerState,
+    run_player_strategy(HouseState, PlayerState,
                 next_card_or_not(PlayerStrategy(PlayerUp, HouseUp))).
 
 %% @doc Trigger TryCount games of 21. Take two strategies, the first
@@ -92,50 +92,60 @@ test_strategy(Player, House, TryCount) ->
 %%    house_busted
 %%       house_won
 %%        user_won
--spec do_house_if(HouseState::userstate(), PlayerState::userstate(), actionresult()) -> endresult().
-do_house_if(_HouseState, #userstate{ tally = PlayerTally }, { ok, PlayerCard }) when PlayerCard + PlayerTally > 21 ->
+
+-spec run_player_strategy(HouseState::userstate(), PlayerState::userstate(), actionresult()) -> endresult().
+
+run_player_strategy(_HouseState, #userstate{ tally = PlayerTally }, { ok, PlayerCard })
+  when PlayerCard + PlayerTally > 21 ->
     user_busted;
-do_house_if(#userstate{ upcard = HouseUp } = HouseState,
-            #userstate{ tally = PlayerTally, upcard = PlayerUp,
-                        strategy = PlayerStrategy }, { ok, PlayerCard }) ->
-    do_house_if(HouseState,
-                #userstate { tally = PlayerCard + PlayerTally, upcard = PlayerUp, strategy = PlayerStrategy },
-                next_card_or_not(PlayerStrategy(PlayerCard + PlayerTally, HouseUp)));
-do_house_if(#userstate { upcard = HouseUp } = HouseState,
-            #userstate{ tally = PlayerTally, strategy = PlayerStrategy } = PlayerState, retry) ->
-    do_house_if(HouseState, PlayerState, PlayerStrategy(PlayerTally, HouseUp));
-do_house_if(#userstate{ tally = HouseTally, strategy = HouseStrategy } = HouseState,
-            #userstate{ upcard = PlayerUp } = PlayerState,
-            done) ->
-    house_draws(HouseState, PlayerState, next_card_or_not(HouseStrategy(HouseTally, PlayerUp)));
-do_house_if(_, _, quit) ->
+run_player_strategy(#userstate{ upcard = HouseUp } = HouseState,
+                    #userstate{ tally = PlayerTally, upcard = PlayerUp,
+                                strategy = PlayerStrategy }, { ok, PlayerCard }) ->
+    run_player_strategy(HouseState,
+                        #userstate { tally = PlayerCard + PlayerTally,
+                                     upcard = PlayerUp, strategy = PlayerStrategy },
+                        next_card_or_not(PlayerStrategy(PlayerCard + PlayerTally, HouseUp)));
+run_player_strategy(#userstate { upcard = HouseUp } = HouseState,
+                    #userstate{ tally = PlayerTally, strategy = PlayerStrategy } = PlayerState,
+                    retry) ->
+    run_player_strategy(HouseState, PlayerState, PlayerStrategy(PlayerTally, HouseUp));
+run_player_strategy(#userstate{ tally = HouseTally, strategy = HouseStrategy } = HouseState,
+                    #userstate{ upcard = PlayerUp } = PlayerState,
+                    done) ->
+    run_house_strategy(HouseState, PlayerState,
+                       next_card_or_not(HouseStrategy(HouseTally, PlayerUp)));
+run_player_strategy(_, _, quit) ->
     user_quit.
 
-%% Invoked after do_house_if to perform the house draw activity
--spec house_draws(HouseState::userstate(), PlayerState::userstate(), actionresult()) -> endresult().
-house_draws(#userstate{ tally = HouseTally }, _PlayerState, { ok, HouseCard }) when HouseCard + HouseTally > 21 ->
+%% Invoked after run_player_strategy to perform the house draw activity
+-spec run_house_strategy(HouseState::userstate(), PlayerState::userstate(), actionresult()) -> endresult().
+run_house_strategy(#userstate{ tally = HouseTally }, _PlayerState,
+                   { ok, HouseCard }) when HouseCard + HouseTally > 21 ->
     house_busted;
-house_draws(#userstate{ tally = HouseTally, upcard = HouseUp,
-                        strategy = HouseStrategy },
-            #userstate{ upcard = PlayerUp } = PlayerState,
-            { ok, HouseCard }) ->
-    house_draws(#userstate { tally = HouseCard + HouseTally, upcard = HouseUp, strategy = HouseStrategy },
-                PlayerState,
-                next_card_or_not(HouseStrategy(HouseCard + HouseTally, PlayerUp)));
-house_draws(#userstate{ tally = HouseTally, strategy = HouseStrategy } = HouseState,
-            #userstate { upcard = PlayerUp } = PlayerState,
-            retry) ->
-    house_draws(HouseState, PlayerState, next_card_or_not(HouseStrategy(HouseTally, PlayerUp)));
-house_draws(#userstate{ tally = HouseTally },
-            #userstate{ tally = PlayerTally },
-            done) when HouseTally >= PlayerTally ->
+run_house_strategy(#userstate{ tally = HouseTally, upcard = HouseUp,
+                               strategy = HouseStrategy },
+                   #userstate{ upcard = PlayerUp } = PlayerState,
+                   { ok, HouseCard }) ->
+    run_house_strategy(#userstate { tally = HouseCard + HouseTally,
+                                    upcard = HouseUp, strategy = HouseStrategy },
+                       PlayerState,
+                       next_card_or_not(HouseStrategy(HouseCard + HouseTally, PlayerUp)));
+run_house_strategy(#userstate{ tally = HouseTally, strategy = HouseStrategy } = HouseState,
+                   #userstate { upcard = PlayerUp } = PlayerState,
+                   retry) ->
+    run_house_strategy(HouseState, PlayerState,
+                       next_card_or_not(HouseStrategy(HouseTally, PlayerUp)));
+run_house_strategy(#userstate{ tally = HouseTally },
+                   #userstate{ tally = PlayerTally },
+                   done) when HouseTally >= PlayerTally ->
     house_won;
-house_draws(_HouseState,
-            _PlayerState,
-            done) ->
+run_house_strategy(_HouseState,
+                   _PlayerState,
+                   done) ->
     user_won;
-house_draws(_, _, quit) ->
+run_house_strategy(_, _, quit) ->
     user_quit.
+
 
 %% @doc Louis' 21 strategy: draw if the current hand is &lt; 12, hold if
 %% &gt; 16, and otherwise decide what to do based on the house's up card.
@@ -228,12 +238,6 @@ chomp(String) ->
     [Line | _Leftover] = string:tokens(String, "\r\n"),
     Line.
 
-%% Per the MIT assignments, just generates a value between 1 and 10,
-%% doesn't try to simulate a real deck of cards
--spec generate_card() -> card().
-generate_card() ->
-    random:uniform(10).
-
 -spec prompt_user() -> 'ok'.
 prompt_user()->
     io:format("Take a card? ").
@@ -260,3 +264,9 @@ handle_user_input({error, What}) ->
 handle_user_input(eof) ->
     io:format("Goodbye.~n"),
     quit.
+
+%% Per the MIT assignments, just generates a value between 1 and 10,
+%% doesn't try to simulate a real deck of cards
+-spec generate_card() -> card().
+generate_card() ->
+    random:uniform(10).
